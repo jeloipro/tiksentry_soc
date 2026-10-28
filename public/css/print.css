@@ -1,0 +1,132 @@
+/* ===================================================================
+   TIKSENTRY SOC - ESTILO DE IMPRESSÃO / EXPORTAÇÃO PDF
+   =================================================================== */
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #1a202c !important;
+    font-size: 11pt !important;
+  }
+
+  /* Oculta elementos de navegação e controles interativos */
+  .soc-header,
+  .soc-nav,
+  .alert-banner,
+  .card-actions,
+  .btn,
+  .map-filter-bar,
+  .timeframe-selector,
+  .no-print {
+    display: none !important;
+  }
+
+  .soc-container {
+    padding: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+
+  /* Exibe exclusivamente o relatório formatado */
+  .tab-content {
+    display: none !important;
+  }
+
+  #tab-reports {
+    display: block !important;
+  }
+
+  .print-header {
+    display: block !important;
+    border-bottom: 2px solid #0072ff;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+
+  .print-header h1 {
+    font-size: 18pt !important;
+    color: #0d1b2a !important;
+    margin: 0 0 4px 0;
+  }
+
+  .print-header p {
+    font-size: 9pt !important;
+    color: #4a5568 !important;
+    margin: 0;
+  }
+
+  .card {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e0 !important;
+    box-shadow: none !important;
+    color: #1a202c !important;
+    page-break-inside: avoid;
+    margin-bottom: 16px !important;
+    padding: 14px !important;
+  }
+
+  .card-title {
+    color: #0d1b2a !important;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+  }
+
+  .stats-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 12px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .stat-card {
+    background: #f7fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #1a202c !important;
+    padding: 10px !important;
+  }
+
+  .stat-title {
+    color: #718096 !important;
+  }
+
+  .stat-value {
+    color: #1a202c !important;
+    font-size: 1.4rem !important;
+  }
+
+  .soc-table {
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  .soc-table th {
+    background: #edf2f7 !important;
+    color: #2d3748 !important;
+    border-bottom: 2px solid #cbd5e0 !important;
+  }
+
+  .soc-table td {
+    border-bottom: 1px solid #e2e8f0 !important;
+    color: #2d3748 !important;
+  }
+
+  .action-badge.drop {
+    background: #fed7d7 !important;
+    color: #c53030 !important;
+    border: 1px solid #feb2b2 !important;
+  }
+
+  .ip-badge {
+    color: #2b6cb0 !important;
+  }
+
+  /* Evita quebras de página indesejadas dentro de tabelas */
+  tr {
+    page-break-inside: avoid;
+  }
+}
+
+/* Em tela normal, o cabeçalho de impressão fica oculto */
+.print-header {
+  display: none;
+}

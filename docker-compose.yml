@@ -1,0 +1,24 @@
+services:
+  tiksentry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tiksentry_soc
+    restart: unless-stopped
+    ports:
+      - "3000:3000/tcp"     # Painel Web SOC e API REST
+      - "514:514/udp"       # Coletor Syslog UDP padrão
+      - "1514:1514/udp"     # Coletor Syslog UDP alternativo
+    volumes:
+      - ./data:/app/data        # Persistência do banco de dados SQLite e configurações
+      - ./public:/app/public    # Atualizações instantâneas de interface e mapas sem rebuild
+      - ./src:/app/src          # Código-fonte sincronizado
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
