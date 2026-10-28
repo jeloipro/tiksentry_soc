@@ -34,6 +34,17 @@ class MikroTikClient {
     }
   }
 
+  // Detecta interfaces WAN (conectadas à internet com rota 0.0.0.0/0 e interface-list WAN)
+  async detectWanInterfaces(customParams = null) {
+    const params = customParams || await this.getParams();
+
+    if (params.protocol === 'rest') {
+      return await this._detectWanRest(params);
+    } else {
+      return await this._detectWanSocketApi(params);
+    }
+  }
+
   // =========================================================================
   // MIKROTIK REST API (RouterOS v7)
   // =========================================================================
@@ -110,6 +121,106 @@ class MikroTikClient {
     }
   }
 
+  async _detectWanRest(params) {
+    try {
+      const [routesData, interfaceListsData, allInterfacesData] = await Promise.all([
+        this._fetchRest(params, '/ip/route').catch(() => []),
+        this._fetchRest(params, '/interface/list/member').catch(() => []),
+        this._fetchRest(params, '/interface').catch(() => [])
+      ]);
+
+      const routes = Array.isArray(routesData) ? routesData : [];
+      const listMembers = Array.isArray(interfaceListsData) ? interfaceListsData : [];
+      const interfaces = Array.isArray(allInterfacesData) ? allInterfacesData : [];
+
+      const detectedWanSet = new Set();
+      const detectedLanSet = new Set();
+
+      // 1. Membros da lista WAN e LAN do RouterOS
+      for (const m of listMembers) {
+        const listName = (m.list || '').toUpperCase();
+        const iface = m.interface;
+        if (iface) {
+          if (listName === 'WAN') detectedWanSet.add(iface);
+          if (listName === 'LAN') detectedLanSet.add(iface);
+        }
+      }
+
+      // 2. Extrai interfaces associadas à rota padrão 0.0.0.0/0 (Internet)
+      const defaultRoutes = routes.filter(r => {
+        const dst = r['dst-address'] || r.dstAddress || '';
+        return dst === '0.0.0.0/0' || dst.startsWith('0.0.0.0/0');
+      });
+
+      const routeGateways = [];
+      for (const dr of defaultRoutes) {
+        const gw = dr.gateway || dr['immediate-gw'] || dr.interface || '';
+        const active = dr.active === true || dr.active === 'true' || dr.disabled === false || dr.disabled === 'false';
+        routeGateways.push({
+          dstAddress: dr['dst-address'] || '0.0.0.0/0',
+          gateway: gw,
+          distance: dr.distance || 1,
+          active
+        });
+
+        if (gw) {
+          const cleanGw = gw.replace(/^%/, '').trim();
+          const matchedIface = interfaces.find(i => i.name === cleanGw || cleanGw.includes(i.name));
+          if (matchedIface) {
+            detectedWanSet.add(matchedIface.name);
+          } else if (!cleanGw.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+            detectedWanSet.add(cleanGw);
+          }
+        }
+      }
+
+      // 3. Fallback inteligente por nomenclatura caso lista/rota estejam vazias
+      if (detectedWanSet.size === 0) {
+        for (const iface of interfaces) {
+          const name = (iface.name || '').toLowerCase();
+          if (name.includes('wan') || name.includes('pppoe') || name.includes('internet') || name === 'ether1' || name.startsWith('sfp')) {
+            detectedWanSet.add(iface.name);
+          }
+        }
+      }
+
+      // Identifica interfaces LAN
+      for (const iface of interfaces) {
+        const name = (iface.name || '').toLowerCase();
+        if (!detectedWanSet.has(iface.name)) {
+          if (name.includes('lan') || name.includes('bridge') || name.startsWith('ether') || name.startsWith('wlan')) {
+            detectedLanSet.add(iface.name);
+          }
+        }
+      }
+
+      const wanInterfaces = Array.from(detectedWanSet);
+      const lanInterfaces = Array.from(detectedLanSet);
+
+      if (wanInterfaces.length > 0) {
+        await db.setSetting('wan_interfaces', wanInterfaces.join(','));
+      }
+      if (lanInterfaces.length > 0) {
+        await db.setSetting('lan_interfaces', lanInterfaces.join(','));
+      }
+
+      return {
+        success: true,
+        protocol: 'rest',
+        defaultRoutes: routeGateways,
+        wanInterfaces,
+        lanInterfaces,
+        totalInterfaces: interfaces.length
+      };
+    } catch (err) {
+      return {
+        success: false,
+        protocol: 'rest',
+        error: err.message
+      };
+    }
+  }
+
   // =========================================================================
   // MIKROTIK SOCKET API (RouterOS v6 & v7 via porta 8728)
   // =========================================================================
@@ -149,6 +260,111 @@ class MikroTikClient {
         success: false,
         protocol: 'api',
         error: err.message || err.toString() || 'Falha na conexão com o MikroTik via API Socket (porta 8728)'
+      };
+    }
+  }
+
+  async _detectWanSocketApi(params) {
+    const client = new RouterOSAPI({
+      host: params.host,
+      port: params.port || 8728,
+      user: params.username,
+      password: params.password,
+      tls: params.useTls,
+      timeout: 8
+    });
+
+    try {
+      await client.connect();
+      const routesRes = await client.write('/ip/route/print').catch(() => []);
+      const listsRes = await client.write('/interface/list/member/print').catch(() => []);
+      const ifacesRes = await client.write('/interface/print').catch(() => []);
+      await client.close();
+
+      const routes = Array.isArray(routesRes) ? routesRes : [];
+      const listMembers = Array.isArray(listsRes) ? listsRes : [];
+      const interfaces = Array.isArray(ifacesRes) ? ifacesRes : [];
+
+      const detectedWanSet = new Set();
+      const detectedLanSet = new Set();
+
+      for (const m of listMembers) {
+        const listName = (m.list || '').toUpperCase();
+        const iface = m.interface;
+        if (iface) {
+          if (listName === 'WAN') detectedWanSet.add(iface);
+          if (listName === 'LAN') detectedLanSet.add(iface);
+        }
+      }
+
+      const defaultRoutes = routes.filter(r => {
+        const dst = r['dst-address'] || '';
+        return dst === '0.0.0.0/0' || dst.startsWith('0.0.0.0/0');
+      });
+
+      const routeGateways = [];
+      for (const dr of defaultRoutes) {
+        const gw = dr.gateway || dr['immediate-gw'] || dr.interface || '';
+        routeGateways.push({
+          dstAddress: dr['dst-address'] || '0.0.0.0/0',
+          gateway: gw,
+          distance: dr.distance || 1,
+          active: dr.active === 'true' || dr.disabled === 'false'
+        });
+
+        if (gw) {
+          const cleanGw = gw.replace(/^%/, '').trim();
+          const matchedIface = interfaces.find(i => i.name === cleanGw || cleanGw.includes(i.name));
+          if (matchedIface) {
+            detectedWanSet.add(matchedIface.name);
+          } else if (!cleanGw.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
+            detectedWanSet.add(cleanGw);
+          }
+        }
+      }
+
+      if (detectedWanSet.size === 0) {
+        for (const iface of interfaces) {
+          const name = (iface.name || '').toLowerCase();
+          if (name.includes('wan') || name.includes('pppoe') || name.includes('internet') || name === 'ether1' || name.startsWith('sfp')) {
+            detectedWanSet.add(iface.name);
+          }
+        }
+      }
+
+      for (const iface of interfaces) {
+        const name = (iface.name || '').toLowerCase();
+        if (!detectedWanSet.has(iface.name)) {
+          if (name.includes('lan') || name.includes('bridge') || name.startsWith('ether') || name.startsWith('wlan')) {
+            detectedLanSet.add(iface.name);
+          }
+        }
+      }
+
+      const wanInterfaces = Array.from(detectedWanSet);
+      const lanInterfaces = Array.from(detectedLanSet);
+
+      if (wanInterfaces.length > 0) {
+        await db.setSetting('wan_interfaces', wanInterfaces.join(','));
+      }
+      if (lanInterfaces.length > 0) {
+        await db.setSetting('lan_interfaces', lanInterfaces.join(','));
+      }
+
+      return {
+        success: true,
+        protocol: 'api',
+        defaultRoutes: routeGateways,
+        wanInterfaces,
+        lanInterfaces,
+        totalInterfaces: interfaces.length
+      };
+    } catch (err) {
+      try { await client.close(); } catch {}
+      return {
+        success: false,
+        protocol: 'api',
+        error: err.message || err.toString()
       };
     }
   }

@@ -36,7 +36,9 @@ class AddressListManager {
     ruleId = null,
     ruleName = null,
     isPermanent = false,
-    geoData = null
+    geoData = null,
+    zone = 'WAN',
+    customList = null
   }) {
     if (!ip) return { success: false, error: 'IP inválido' };
 
@@ -50,7 +52,7 @@ class AddressListManager {
 
     const geo = geoData || resolveGeoIp(ip);
     const params = await mikrotikClient.getParams();
-    const listName = params.blockListName || 'TIKSENTRY_BLOCKED';
+    const listName = customList || params.blockListName || 'TIKSENTRY_BLOCKED';
 
     // 1. Tenta enviar o bloqueio para o MikroTik via API
     let mikrotikSynced = 0;
@@ -73,8 +75,8 @@ class AddressListManager {
       INSERT INTO blocked_ips (
         ip, reason, rule_id, rule_name, blocked_at, expires_at,
         is_permanent, synced_to_mikrotik, mikrotik_list_name,
-        country, city, country_code, latitude, longitude, hit_count, last_hit_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        country, city, country_code, latitude, longitude, zone, hit_count, last_hit_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
       ON CONFLICT(ip) DO UPDATE SET
         reason = excluded.reason,
         rule_id = excluded.rule_id,
@@ -82,6 +84,7 @@ class AddressListManager {
         expires_at = excluded.expires_at,
         is_permanent = excluded.is_permanent,
         synced_to_mikrotik = excluded.synced_to_mikrotik,
+        zone = excluded.zone,
         hit_count = blocked_ips.hit_count + 1,
         last_hit_at = excluded.last_hit_at
     `, [
@@ -99,6 +102,7 @@ class AddressListManager {
       geo.country_code,
       geo.latitude,
       geo.longitude,
+      zone || 'WAN',
       blockedAt
     ]);
 

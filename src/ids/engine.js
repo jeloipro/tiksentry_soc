@@ -147,6 +147,7 @@ class IdsEngine {
     const srcIp = log.src_ip;
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
+    const zone = log.zone || 'WAN';
 
     // Evita disparar auto-bloqueio repetidamente se já foi bloqueado nos últimos 60 segundos
     const lastBlockedAt = this.recentlyBlocked.get(srcIp);
@@ -157,19 +158,31 @@ class IdsEngine {
     if (!alreadyBlockedRecently) {
       this.recentlyBlocked.set(srcIp, now);
 
+      // Proteção de infraestrutura: nunca auto-bloquear o IP do próprio gateway local ou loopback
+      const isGatewayOrLoopback = srcIp === '127.0.0.1' || srcIp === '::1' || srcIp === '192.168.88.1' || srcIp.endsWith('.255');
+
       // Verifica se o auto-bloqueio da regra e global estão ativos
       const autoBlockGlobal = await db.getSetting('mikrotik_auto_block', 'true');
-      const shouldBlock = rule.auto_block === 1 && autoBlockGlobal === 'true';
+      const shouldBlock = rule.auto_block === 1 && autoBlockGlobal === 'true' && !isGatewayOrLoopback;
+
+      const lanQuarantineList = await db.getSetting('lan_quarantine_list', 'TIKSENTRY_LAN_QUARANTINE');
+      const targetList = zone === 'LAN' ? lanQuarantineList : null;
+
+      const ruleDisplayName = zone === 'LAN' 
+        ? `[Ameaça Interna / LAN] ${rule.name}`
+        : `[Ataque Internet / WAN] ${rule.name}`;
 
       if (shouldBlock) {
         autoBlocked = 1;
         const duration = rule.block_duration_minutes || 60;
         addressListManager.blockIp({
           ip: srcIp,
-          reason: `IDS: ${rule.name}`,
+          reason: `IDS: ${ruleDisplayName}`,
           durationMinutes: duration,
           ruleId: rule.id,
-          ruleName: rule.name,
+          ruleName: ruleDisplayName,
+          zone: zone,
+          customList: targetList,
           geoData: {
             country: log.country,
             city: log.city,
@@ -184,18 +197,19 @@ class IdsEngine {
 
       // Registra evento de segurança no banco
       await db.run(`
-        INSERT INTO ids_events (timestamp, src_ip, rule_id, rule_name, severity, details, auto_blocked, country, city)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO ids_events (timestamp, src_ip, rule_id, rule_name, severity, details, auto_blocked, country, city, zone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         nowIso,
         srcIp,
         rule.id,
-        rule.name,
+        ruleDisplayName,
         rule.severity || 'high',
-        `Ataque detectado: ${rule.name}. Porta destino: ${log.dst_port || 'múltiplas'}. Protocolo: ${log.protocol}.`,
+        `${ruleDisplayName}. Origem: ${zone}. Porta destino: ${log.dst_port || 'múltiplas'}. Protocolo: ${log.protocol}. Interface: ${log.in_interface || '-'}`,
         autoBlocked,
         log.country,
-        log.city
+        log.city,
+        zone
       ]).catch(() => {});
 
       // Notifica via WebSocket para o mapa e dashboard
@@ -208,8 +222,9 @@ class IdsEngine {
             src_ip: srcIp,
             dst_port: log.dst_port,
             protocol: log.protocol,
-            rule_name: rule.name,
+            rule_name: ruleDisplayName,
             severity: rule.severity,
+            zone: zone,
             auto_blocked: autoBlocked === 1,
             country: log.country,
             city: log.city,

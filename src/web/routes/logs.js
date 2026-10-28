@@ -45,6 +45,11 @@ router.get('/', async (req, res) => {
       params.push(req.query.country.toUpperCase());
     }
 
+    if (req.query.zone && req.query.zone !== 'all') {
+      whereClauses.push('zone = ?');
+      params.push(req.query.zone.toUpperCase());
+    }
+
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const countRow = await db.get(`SELECT COUNT(*) as total FROM firewall_logs ${whereSql}`, params);
@@ -82,9 +87,15 @@ router.get('/stats', async (req, res) => {
         SELECT 
           COUNT(*) as total_events,
           SUM(CASE WHEN is_threat = 1 THEN 1 ELSE 0 END) as threats,
+          SUM(CASE WHEN is_threat = 1 AND (zone = 'WAN' OR zone IS NULL) THEN 1 ELSE 0 END) as wan_threats,
+          SUM(CASE WHEN is_threat = 1 AND zone = 'LAN' THEN 1 ELSE 0 END) as lan_threats,
+          SUM(CASE WHEN zone = 'LAN' THEN 1 ELSE 0 END) as lan_events,
+          SUM(CASE WHEN zone = 'WAN' OR zone IS NULL THEN 1 ELSE 0 END) as wan_events,
           SUM(CASE WHEN action IN ('drop', 'reject') THEN 1 ELSE 0 END) as dropped,
           COUNT(DISTINCT src_ip) as unique_sources,
-          COUNT(DISTINCT CASE WHEN is_threat = 1 THEN src_ip END) as unique_attackers
+          COUNT(DISTINCT CASE WHEN is_threat = 1 THEN src_ip END) as unique_attackers,
+          COUNT(DISTINCT CASE WHEN is_threat = 1 AND (zone = 'WAN' OR zone IS NULL) THEN src_ip END) as unique_wan_attackers,
+          COUNT(DISTINCT CASE WHEN is_threat = 1 AND zone = 'LAN' THEN src_ip END) as unique_lan_threats
         FROM firewall_logs 
         WHERE timestamp >= ?
       `, [cutoff24h]),
@@ -107,9 +118,15 @@ router.get('/stats', async (req, res) => {
       data: {
         totalEvents,
         threats,
+        wanThreats: stats24h?.wan_threats || 0,
+        lanThreats: stats24h?.lan_threats || 0,
+        wanEvents: stats24h?.wan_events || 0,
+        lanEvents: stats24h?.lan_events || 0,
         dropped,
         uniqueSources: stats24h?.unique_sources || 0,
         uniqueAttackers: stats24h?.unique_attackers || 0,
+        uniqueWanAttackers: stats24h?.unique_wan_attackers || 0,
+        uniqueLanThreats: stats24h?.unique_lan_threats || 0,
         activeBlockedIps: blockedCount?.count || 0,
         eventsLastHour: stats1h?.events_last_hour || 0,
         eventsPerMinute: Math.round((stats1h?.events_last_hour || 0) / 60)

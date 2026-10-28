@@ -155,14 +155,26 @@ function appendLogToStream(log) {
   const row = document.createElement('tr');
   if (log.is_threat) row.style.backgroundColor = 'rgba(255, 0, 85, 0.08)';
 
+  const zone = log.zone || 'WAN';
   const timeStr = new Date(log.timestamp).toLocaleTimeString();
   const actionClass = (log.action || 'drop').toLowerCase();
 
+  const zoneBadge = zone === 'LAN'
+    ? `<span class="action-badge" style="background:rgba(255,170,0,0.15); color:var(--amber); border:1px solid rgba(255,170,0,0.4); font-size:0.7rem;">🏠 LAN</span>`
+    : `<span class="action-badge" style="background:rgba(0,240,255,0.12); color:var(--cyan); border:1px solid rgba(0,240,255,0.35); font-size:0.7rem;">🌐 WAN</span>`;
+
+  row.setAttribute('data-zone', zone);
+  row.setAttribute('data-chain', (log.chain || '').toLowerCase());
+  row.setAttribute('data-threat', log.is_threat ? '1' : '0');
+  row.setAttribute('data-search', `${log.src_ip} ${log.dst_port} ${log.threat_reason || ''} ${log.in_interface || ''}`.toLowerCase());
+
   row.innerHTML = `
     <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">${timeStr}</td>
+    <td>${zoneBadge}</td>
     <td><span class="action-badge ${actionClass}">${log.action}</span></td>
-    <td><span class="port-badge">${log.chain}</span></td>
+    <td><span class="port-badge">${log.chain || 'input'}</span></td>
     <td><span class="port-badge">${(log.protocol || 'TCP').toUpperCase()}</span></td>
+    <td><span class="port-badge" style="font-size:0.7rem; color:#fff;">in:${log.in_interface || '-'}</span></td>
     <td>
       <span class="ip-badge">${log.src_ip}</span>:${log.src_port || 0}
       <div style="font-size:0.68rem; color:var(--text-muted);">${log.country || ''} (${log.city || ''})</div>
@@ -176,11 +188,42 @@ function appendLogToStream(log) {
     </td>
   `;
 
+  // Aplica filtro ativo imediatamente na linha recém-chegada
+  applyRowVisibility(row);
+
   tbody.insertBefore(row, tbody.firstChild);
 
   // Limita a 200 linhas no DOM para performance ultra-leve
   if (tbody.children.length > 200) {
     tbody.removeChild(tbody.lastChild);
+  }
+}
+
+function applyRowVisibility(row) {
+  const zoneFilter = document.getElementById('filterLogsZone')?.value || 'all';
+  const chainFilter = document.getElementById('filterLogsChain')?.value || 'all';
+  const threatFilter = document.getElementById('filterLogsThreats')?.value || 'all';
+  const searchFilter = (document.getElementById('filterLogsSearch')?.value || '').toLowerCase().trim();
+
+  const rowZone = row.getAttribute('data-zone');
+  const rowChain = row.getAttribute('data-chain');
+  const rowThreat = row.getAttribute('data-threat');
+  const rowSearch = row.getAttribute('data-search') || '';
+
+  let visible = true;
+  if (zoneFilter !== 'all' && rowZone !== zoneFilter) visible = false;
+  if (chainFilter !== 'all' && rowChain !== chainFilter) visible = false;
+  if (threatFilter === 'threats' && rowThreat !== '1') visible = false;
+  if (searchFilter && !rowSearch.includes(searchFilter)) visible = false;
+
+  row.style.display = visible ? '' : 'none';
+}
+
+function filterLiveLogs() {
+  const tbody = document.getElementById('liveLogsTableBody');
+  if (!tbody) return;
+  for (const row of tbody.children) {
+    applyRowVisibility(row);
   }
 }
 
@@ -192,11 +235,15 @@ function showIdsAlertBanner(alert) {
   const textEl = document.getElementById('alertBannerText');
   if (!banner || !textEl) return;
 
+  const isLan = alert.zone === 'LAN';
+  const zoneBadge = isLan ? '🏠 AMEAÇA INTERNA / LAN' : '🌐 ATAQUE EXTERNO / WAN';
+
   textEl.innerHTML = `
-    <strong>${alert.rule_name}</strong> detectado de 
+    <strong style="color:${isLan ? 'var(--amber)' : 'var(--cyan)'};">[${zoneBadge}]</strong> 
+    <strong>${alert.rule_name}</strong> de 
     <span class="ip-badge" style="color:#fff;">${alert.src_ip}</span> 
-    (${alert.city}, ${alert.country}) em direção à porta <strong>${alert.dst_port || 'Scan'}</strong>
-    ${alert.auto_blocked ? '— <strong style="color:var(--emerald);">IP BLOQUEADO NO MIKROTIK</strong>' : ''}
+    (${alert.city || 'Local'}, ${alert.country || 'LAN'}) porta <strong>${alert.dst_port || 'Scan'}</strong>
+    ${alert.auto_blocked ? `— <strong style="color:var(--emerald);">ISOLADO NO MIKROTIK (${isLan ? 'Quarentena LAN' : 'Address-List WAN'})</strong>` : ''}
   `;
 
   banner.classList.remove('hidden');
@@ -279,6 +326,12 @@ async function loadDashboardStats() {
     if (document.getElementById('dashBlockedIps')) document.getElementById('dashBlockedIps').textContent = d.activeBlockedIps.toLocaleString();
     if (document.getElementById('dashPpm')) document.getElementById('dashPpm').textContent = `${d.eventsPerMinute} logs/min`;
 
+    // Atualiza contadores específicos WAN (Internet) e LAN (Rede Interna)
+    if (document.getElementById('dashWanThreats')) document.getElementById('dashWanThreats').textContent = (d.wanThreats || 0).toLocaleString();
+    if (document.getElementById('dashLanThreats')) document.getElementById('dashLanThreats').textContent = (d.lanThreats || 0).toLocaleString();
+    if (document.getElementById('dashWanAttackers')) document.getElementById('dashWanAttackers').textContent = (d.uniqueWanAttackers || 0).toLocaleString();
+    if (document.getElementById('dashLanDevices')) document.getElementById('dashLanDevices').textContent = (d.uniqueLanThreats || 0).toLocaleString();
+
     // Atualiza gráficos do Dashboard a cada ciclo
     const repRes = await fetch('/api/reports/full?range=24h');
     const repJson = await repRes.json();
@@ -306,4 +359,5 @@ function clearLogStreamTable() {
 
 window.toggleLogStreaming = toggleLogStreaming;
 window.clearLogStreamTable = clearLogStreamTable;
+window.filterLiveLogs = filterLiveLogs;
 window.dismissAlertBanner = dismissAlertBanner;

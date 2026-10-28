@@ -604,6 +604,18 @@ body {
   border: 1px solid rgba(0, 255, 157, 0.3);
 }
 
+.action-badge.wan {
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+}
+
+.action-badge.lan {
+  background: rgba(255, 170, 0, 0.15);
+  color: var(--amber);
+  border: 1px solid rgba(255, 170, 0, 0.4);
+}
+
 .flag-icon {
   width: 18px;
   height: 12px;

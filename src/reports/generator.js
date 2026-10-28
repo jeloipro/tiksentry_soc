@@ -52,9 +52,15 @@ class ReportGenerator {
       SELECT 
         COUNT(*) as total_events,
         SUM(CASE WHEN is_threat = 1 THEN 1 ELSE 0 END) as total_threats,
+        SUM(CASE WHEN is_threat = 1 AND (zone = 'WAN' OR zone IS NULL) THEN 1 ELSE 0 END) as wan_threats,
+        SUM(CASE WHEN is_threat = 1 AND zone = 'LAN' THEN 1 ELSE 0 END) as lan_threats,
+        SUM(CASE WHEN zone = 'LAN' THEN 1 ELSE 0 END) as lan_events,
+        SUM(CASE WHEN zone = 'WAN' OR zone IS NULL THEN 1 ELSE 0 END) as wan_events,
         SUM(CASE WHEN action IN ('drop', 'reject') THEN 1 ELSE 0 END) as total_blocked_drops,
         COUNT(DISTINCT src_ip) as unique_sources,
-        COUNT(DISTINCT CASE WHEN is_threat = 1 THEN src_ip END) as unique_attackers
+        COUNT(DISTINCT CASE WHEN is_threat = 1 THEN src_ip END) as unique_attackers,
+        COUNT(DISTINCT CASE WHEN is_threat = 1 AND (zone = 'WAN' OR zone IS NULL) THEN src_ip END) as unique_wan_attackers,
+        COUNT(DISTINCT CASE WHEN is_threat = 1 AND zone = 'LAN' THEN src_ip END) as unique_lan_threats
       FROM firewall_logs 
       WHERE timestamp >= ?
     `, [cutoff]);
@@ -128,6 +134,7 @@ class ReportGenerator {
     const attackersRows = await db.all(`
       SELECT 
         l.src_ip, l.country, l.city, l.country_code,
+        COALESCE(l.zone, 'WAN') as zone,
         COUNT(*) as hits,
         SUM(CASE WHEN l.is_threat = 1 THEN 1 ELSE 0 END) as threat_hits,
         MAX(l.timestamp) as last_seen,

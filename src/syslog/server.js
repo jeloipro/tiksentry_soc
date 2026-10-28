@@ -2,7 +2,7 @@ const dgram = require('dgram');
 const config = require('../config');
 const db = require('../storage/db');
 const { parseMikroTikLog } = require('./parser');
-const { resolveGeoIp } = require('../geoip/resolver');
+const { resolveGeoIp, isPrivateIp } = require('../geoip/resolver');
 const idsEngine = require('../ids/engine');
 
 class SyslogServer {
@@ -13,6 +13,9 @@ class SyslogServer {
     this.batchTimer = null;
     this.broadcastCallback = null;
     this.activePort = config.syslogPort;
+    this.cachedWanInterfaces = ['ether1', 'pppoe-out1', 'wan', 'sfp-sfpplus1', 'internet'];
+    this.cachedLanInterfaces = ['bridge', 'lan', 'bridge1', 'ether2', 'ether3', 'ether4', 'ether5'];
+    this.lastCacheRefresh = 0;
   }
 
   setBroadcaster(fn) {
@@ -61,6 +64,51 @@ class SyslogServer {
     }
   }
 
+  async refreshInterfacesCache() {
+    const now = Date.now();
+    if (now - this.lastCacheRefresh < 30000) return;
+    this.lastCacheRefresh = now;
+    try {
+      const wanStr = await db.getSetting('wan_interfaces', 'ether1,pppoe-out1,wan,sfp-sfpplus1,internet');
+      const lanStr = await db.getSetting('lan_interfaces', 'bridge,lan,bridge1,ether2,ether3,ether4,ether5');
+      this.cachedWanInterfaces = wanStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      this.cachedLanInterfaces = lanStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    } catch {}
+  }
+
+  determineZone(parsed) {
+    const raw = (parsed.raw_message || '').toUpperCase();
+    const inIf = (parsed.in_interface || '').toLowerCase();
+
+    // 1. Prefixo explícito nos logs gerados pelas regras MikroTik
+    if (raw.includes('[TIKSENTRY-WAN') || raw.includes('WAN-DROP') || raw.includes('WAN_DROP')) {
+      return 'WAN';
+    }
+    if (raw.includes('[TIKSENTRY-LAN') || raw.includes('LAN-DROP') || raw.includes('LAN_DROP')) {
+      return 'LAN';
+    }
+
+    // 2. Compara interface de entrada com as interfaces identificadas na rota 0.0.0.0/0
+    if (inIf && inIf !== '-' && inIf !== 'unknown') {
+      for (const w of this.cachedWanInterfaces) {
+        if (inIf === w || inIf.includes(w)) return 'WAN';
+      }
+      for (const l of this.cachedLanInterfaces) {
+        if (inIf === l || inIf.includes(l)) return 'LAN';
+      }
+    }
+
+    // 3. Verificação por endereço IP (RFC 1918)
+    const isPrivate = isPrivateIp(parsed.src_ip);
+    if (!isPrivate) {
+      // IP público vindo da internet (WAN / rota default)
+      return 'WAN';
+    } else {
+      // IP privado de dispositivo na rede local (LAN)
+      return 'LAN';
+    }
+  }
+
   async handleIncomingPacket(msgBuffer, rinfo) {
     const parsed = parseMikroTikLog(msgBuffer);
     if (!parsed) return;
@@ -69,6 +117,12 @@ class SyslogServer {
     if (!parsed.src_ip || parsed.src_ip === '-') {
       parsed.src_ip = rinfo.address;
     }
+
+    // Atualiza cache de interfaces se necessário
+    await this.refreshInterfacesCache();
+
+    // Determina a Zona (WAN: Internet 0.0.0.0/0 vs LAN: Rede Interna)
+    parsed.zone = this.determineZone(parsed);
 
     // Enriquece com informações GeoIP
     const geo = resolveGeoIp(parsed.src_ip);
@@ -114,8 +168,8 @@ class SyslogServer {
           timestamp, chain, action, protocol, src_ip, src_port, dst_ip, dst_port,
           in_interface, out_interface, packet_size, tcp_flags, connection_state,
           src_mac, country, city, country_code, latitude, longitude,
-          is_threat, threat_reason, raw_message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          is_threat, threat_reason, zone, raw_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       params: [
         log.timestamp,
@@ -139,6 +193,7 @@ class SyslogServer {
         log.longitude,
         log.is_threat ? 1 : 0,
         log.threat_reason,
+        log.zone || 'WAN',
         log.raw_message
       ]
     }));

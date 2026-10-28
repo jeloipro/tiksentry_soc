@@ -83,7 +83,7 @@ async function loadBlockedIps() {
     if (!tbody) return;
 
     if (json.data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">Nenhum IP bloqueado no momento.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:20px;">Nenhum IP bloqueado no momento.</td></tr>';
       return;
     }
 
@@ -93,9 +93,14 @@ async function loadBlockedIps() {
         ? '<span style="color:var(--emerald); font-weight:700;">● Sincronizado</span>' 
         : '<span style="color:var(--amber);">○ Pendente</span>';
 
+      const zoneBadge = (item.zone === 'LAN')
+        ? '<span class="action-badge" style="background:rgba(255,170,0,0.15); color:var(--amber); border:1px solid rgba(255,170,0,0.4); font-size:0.7rem;">🏠 LAN Quarentena</span>'
+        : '<span class="action-badge" style="background:rgba(0,240,255,0.12); color:var(--cyan); border:1px solid rgba(0,240,255,0.35); font-size:0.7rem;">🌐 WAN</span>';
+
       return `
         <tr>
           <td><span class="ip-badge">${item.ip}</span></td>
+          <td>${zoneBadge}</td>
           <td>${item.country} (${item.country_code}) - ${item.city}</td>
           <td><span style="font-size:0.75rem;">${item.reason}</span></td>
           <td style="font-size:0.75rem; color:var(--text-muted);">${new Date(item.blocked_at).toLocaleString()}</td>

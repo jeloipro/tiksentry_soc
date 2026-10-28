@@ -67,104 +67,80 @@ function parseMikroTikLog(rawBufferOrString) {
     };
   }
 
-  // 2. Tenta parsear log de firewall padrão
-  const match = cleanMsg.match(FIREWALL_PATTERN);
-  if (match) {
-    const logLevel = (match[1] || '').toLowerCase();
-    const prefixOrLevel = match[2] || '';
-    const chain = match[3] || 'forward';
-    const inIf = match[4] || '-';
-    const outIf = match[5] || '-';
-    const srcMac = match[6] || null;
-    const protocol = (match[7] || 'ip').toLowerCase();
-    const tcpFlags = match[8] || null;
-    const srcIp = match[9] || '';
-    const srcPort = match[10] ? parseInt(match[10], 10) : 0;
-    const dstIp = match[11] || '';
-    const dstPort = match[12] ? parseInt(match[12], 10) : 0;
-    const packetLen = match[13] ? parseInt(match[13], 10) : 0;
+  // 2. Extração de IP de Origem e Destino do Firewall
+  // Formato: 1.2.3.4:1234 -> 5.6.7.8:80 ou sem portas: 1.2.3.4 -> 5.6.7.8
+  const ipMatch = cleanMsg.match(/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(?::(\d+))?\s*(?:->|>)\s*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(?::(\d+))?/);
+  if (!ipMatch) return null;
 
-    if (!srcIp || !dstIp) return null;
+  const srcIp = normalizeIp(ipMatch[1]);
+  const srcPort = ipMatch[2] ? parseInt(ipMatch[2], 10) : 0;
+  const dstIp = normalizeIp(ipMatch[3]);
+  const dstPort = ipMatch[4] ? parseInt(ipMatch[4], 10) : 0;
 
-    // Determina a ação do firewall
-    let action = 'unknown';
-    const combinedMsg = (logLevel + ' ' + prefixOrLevel + ' ' + cleanMsg).toLowerCase();
+  // Cadeia do firewall (input, forward, output)
+  const chainMatch = cleanMsg.match(/\b(input|forward|output):/i);
+  const chain = chainMatch ? chainMatch[1].toLowerCase() : 'forward';
 
-    if (combinedMsg.includes('drop') || logLevel === 'warning' || logLevel === 'critical' || logLevel === 'error') {
-      action = 'drop';
-    } else if (combinedMsg.includes('reject')) {
-      action = 'reject';
-    } else if (combinedMsg.includes('accept') || logLevel === 'info') {
-      action = 'accept';
-    }
+  // Interfaces de entrada e saída
+  const inMatch = cleanMsg.match(/\bin:([^\s,]+)/);
+  const inIf = inMatch ? inMatch[1].replace(/[(),]/g, '').trim() : '-';
 
-    // Se o prefixo contiver DROP, REJECT ou BLOCK
-    if (/drop|block|reject|defend|ids/i.test(prefixOrLevel)) {
-      action = 'drop';
-    }
-
-    const connMatch = cleanMsg.match(CONN_STATE_PATTERN);
-    const connState = connMatch ? connMatch[1] : (tcpFlags && tcpFlags.includes('SYN') ? 'new' : null);
-
-    return {
-      timestamp: now,
-      chain: chain.toLowerCase(),
-      action: action,
-      protocol: protocol,
-      src_ip: normalizeIp(srcIp),
-      src_port: srcPort,
-      dst_ip: normalizeIp(dstIp),
-      dst_port: dstPort,
-      in_interface: inIf,
-      out_interface: outIf,
-      packet_size: packetLen,
-      tcp_flags: tcpFlags,
-      connection_state: connState,
-      src_mac: srcMac,
-      is_threat: 0,
-      threat_reason: null,
-      raw_message: raw
-    };
+  const outMatch = cleanMsg.match(/\bout:(\([^)]+\)|[^\s,]+)/);
+  let outIf = '-';
+  if (outMatch) {
+    outIf = outMatch[1].replace(/[(),]/g, '').trim();
+    if (!outIf || outIf === 'unknown 0' || outIf === 'unknown') outIf = '-';
   }
 
-  // Fallback genérico para logs com formato de IP e portas: 1.2.3.4:1234 -> 5.6.7.8:80
-  const genericIpPattern = /([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(?::(\d+))?\s*(?:->|>)\s*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})(?::(\d+))?/;
-  const genMatch = cleanMsg.match(genericIpPattern);
-  if (genMatch) {
-    const srcIp = genMatch[1];
-    const srcPort = genMatch[2] ? parseInt(genMatch[2], 10) : 0;
-    const dstIp = genMatch[3];
-    const dstPort = genMatch[4] ? parseInt(genMatch[4], 10) : 0;
+  // MAC de origem
+  const macMatch = cleanMsg.match(/src-mac\s+([0-9a-fA-F:]+)/);
+  const srcMac = macMatch ? macMatch[1] : null;
 
-    let proto = 'tcp';
-    if (/udp/i.test(cleanMsg)) proto = 'udp';
-    else if (/icmp/i.test(cleanMsg)) proto = 'icmp';
+  // Protocolo e flags TCP
+  const protoMatch = cleanMsg.match(/proto\s+(\w+)(?:\s*\(([^)]+)\))?/i);
+  let protocol = protoMatch ? protoMatch[1].toLowerCase() : 'ip';
+  const tcpFlags = protoMatch && protoMatch[2] ? protoMatch[2] : null;
 
-    let action = 'drop';
-    if (/accept/i.test(cleanMsg)) action = 'accept';
-
-    return {
-      timestamp: now,
-      chain: 'forward',
-      action: action,
-      protocol: proto,
-      src_ip: normalizeIp(srcIp),
-      src_port: srcPort,
-      dst_ip: normalizeIp(dstIp),
-      dst_port: dstPort,
-      in_interface: '-',
-      out_interface: '-',
-      packet_size: 0,
-      tcp_flags: null,
-      connection_state: null,
-      src_mac: null,
-      is_threat: 0,
-      threat_reason: null,
-      raw_message: raw
-    };
+  if (protocol === 'ip') {
+    if (/udp/i.test(cleanMsg)) protocol = 'udp';
+    else if (/icmp/i.test(cleanMsg)) protocol = 'icmp';
+    else if (/tcp/i.test(cleanMsg)) protocol = 'tcp';
   }
 
-  return null;
+  // Tamanho do pacote
+  const lenMatch = cleanMsg.match(/\blen\s+(\d+)/);
+  const packetLen = lenMatch ? parseInt(lenMatch[1], 10) : 0;
+
+  // Connection-state
+  const connMatch = cleanMsg.match(/connection-state=([a-zA-Z0-9_\-]+)/);
+  const connState = connMatch ? connMatch[1] : (tcpFlags && tcpFlags.includes('SYN') ? 'new' : null);
+
+  // Ação (drop, reject, accept)
+  let action = 'drop';
+  const lowerMsg = cleanMsg.toLowerCase();
+  if (lowerMsg.includes('accept')) action = 'accept';
+  else if (lowerMsg.includes('reject')) action = 'reject';
+  else if (lowerMsg.includes('drop') || lowerMsg.includes('block') || lowerMsg.includes('defend')) action = 'drop';
+
+  return {
+    timestamp: now,
+    chain: chain,
+    action: action,
+    protocol: protocol,
+    src_ip: srcIp,
+    src_port: srcPort,
+    dst_ip: dstIp,
+    dst_port: dstPort,
+    in_interface: inIf,
+    out_interface: outIf,
+    packet_size: packetLen,
+    tcp_flags: tcpFlags,
+    connection_state: connState,
+    src_mac: srcMac,
+    is_threat: 0,
+    threat_reason: null,
+    raw_message: raw
+  };
 }
 
 function normalizeIp(ip) {

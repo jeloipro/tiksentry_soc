@@ -99,9 +99,13 @@ const initDb = async () => {
         longitude REAL,
         is_threat INTEGER DEFAULT 0,
         threat_reason TEXT,
+        zone TEXT DEFAULT 'WAN',
         raw_message TEXT
       );
     `);
+
+    // Migração de schema caso as tabelas já existam sem a coluna zone
+    await migrateColumns();
 
     // Índices para consultas ultra-rápidas no Dashboard e Mapa
     await run('CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON firewall_logs(timestamp);');
@@ -110,6 +114,7 @@ const initDb = async () => {
     await run('CREATE INDEX IF NOT EXISTS idx_logs_is_threat ON firewall_logs(is_threat);');
     await run('CREATE INDEX IF NOT EXISTS idx_logs_country_code ON firewall_logs(country_code);');
     await run('CREATE INDEX IF NOT EXISTS idx_logs_city ON firewall_logs(city);');
+    await run('CREATE INDEX IF NOT EXISTS idx_logs_zone ON firewall_logs(zone);');
 
     // 3. Tabela de Regras IDS
     await run(`
@@ -146,6 +151,7 @@ const initDb = async () => {
         country_code TEXT,
         latitude REAL,
         longitude REAL,
+        zone TEXT DEFAULT 'WAN',
         hit_count INTEGER DEFAULT 1,
         last_hit_at TEXT NOT NULL
       );
@@ -165,7 +171,8 @@ const initDb = async () => {
         details TEXT,
         auto_blocked INTEGER DEFAULT 0,
         country TEXT,
-        city TEXT
+        city TEXT,
+        zone TEXT DEFAULT 'WAN'
       );
     `);
 
@@ -180,6 +187,24 @@ const initDb = async () => {
     console.log('[DB] Tabelas e índices do TikSentry inicializados com sucesso.');
   } catch (err) {
     console.error('[DB] Erro ao inicializar esquema do banco:', err);
+  }
+};
+
+const migrateColumns = async () => {
+  try {
+    const ensureColumn = async (table, column, definition) => {
+      const cols = await all(`PRAGMA table_info(${table})`);
+      if (cols && !cols.some(c => c.name === column)) {
+        await run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+        console.log(`[DB Migration] Coluna '${column}' adicionada à tabela '${table}'.`);
+      }
+    };
+
+    await ensureColumn('firewall_logs', 'zone', "TEXT DEFAULT 'WAN'");
+    await ensureColumn('ids_events', 'zone', "TEXT DEFAULT 'WAN'");
+    await ensureColumn('blocked_ips', 'zone', "TEXT DEFAULT 'WAN'");
+  } catch (err) {
+    console.error('[DB Migration] Erro ao verificar/migrar colunas:', err.message);
   }
 };
 
@@ -336,6 +361,10 @@ const seedDefaultSettings = async () => {
     'mikrotik_use_tls': config.mikrotik.useTls ? 'true' : 'false',
     'mikrotik_block_list': config.mikrotik.blockListName,
     'mikrotik_auto_block': config.mikrotik.autoBlock ? 'true' : 'false',
+    'wan_interfaces': 'ether1,pppoe-out1,wan,sfp-sfpplus1,internet',
+    'lan_interfaces': 'bridge,lan,bridge1,ether2,ether3,ether4,ether5',
+    'lan_quarantine_list': 'TIKSENTRY_LAN_QUARANTINE',
+    'auto_detect_wan': 'true',
     'router_lat': config.router.lat.toString(),
     'router_lng': config.router.lng.toString(),
     'router_name': config.router.name

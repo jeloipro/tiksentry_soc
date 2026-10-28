@@ -14,8 +14,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
   
   <!-- Custom Stylesheets -->
-  <link rel="stylesheet" href="/css/styles.css?v=1.0.3">
-  <link rel="stylesheet" href="/css/print.css?v=1.0.3" media="print">
+  <link rel="stylesheet" href="/css/styles.css?v=1.0.4">
+  <link rel="stylesheet" href="/css/print.css?v=1.0.4" media="print">
 </head>
 <body>
 
@@ -124,6 +124,39 @@
           <div class="stat-title">IPs Atacantes Bloqueados</div>
           <div class="stat-value" id="dashBlockedIps">0</div>
           <div class="stat-desc">Na Address-List ativa</div>
+        </div>
+      </div>
+
+      <!-- Divisão de Ameaças: Internet (WAN 0.0.0.0/0) vs Rede Interna (LAN) -->
+      <div class="grid-2col" style="margin-bottom: 24px;">
+        <div class="card" style="border-left: 4px solid var(--cyan); background: linear-gradient(135deg, rgba(0, 240, 255, 0.05), transparent);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:var(--cyan); font-weight:700;">
+                🌐 Ataques da Internet (WAN / Rota 0.0.0.0/0)
+              </div>
+              <div style="font-size:1.8rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin:4px 0;" id="dashWanThreats">0</div>
+              <div style="font-size:0.75rem; color:var(--text-muted);">
+                Ataques externos bloqueados na cadeia input/forward (<span id="dashWanAttackers" style="color:#fff; font-weight:600;">0</span> atacantes únicos)
+              </div>
+            </div>
+            <span class="action-badge drop" style="font-size:0.8rem; padding:4px 10px;">INTERNET</span>
+          </div>
+        </div>
+
+        <div class="card" style="border-left: 4px solid var(--amber); background: linear-gradient(135deg, rgba(255, 170, 0, 0.05), transparent);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:var(--amber); font-weight:700;">
+                🏠 Ameaças da Rede Interna (LAN)
+              </div>
+              <div style="font-size:1.8rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin:4px 0;" id="dashLanThreats">0</div>
+              <div style="font-size:0.75rem; color:var(--text-muted);">
+                Varreduras locais / hosts potencialmente infectados (<span id="dashLanDevices" style="color:#fff; font-weight:600;">0</span> dispositivos suspeitos)
+              </div>
+            </div>
+            <span class="action-badge" style="background:rgba(255,170,0,0.15); color:var(--amber); border:1px solid rgba(255,170,0,0.4); font-size:0.8rem; padding:4px 10px;">LAN INTERNA</span>
+          </div>
         </div>
       </div>
 
@@ -240,6 +273,37 @@
          ABA 3: LOGS EM TEMPO REAL (SYSLOG STREAM)
          ------------------------------------------------------------ -->
     <section class="tab-content" id="tab-logs">
+      <!-- Filtros Rápidos de Logs -->
+      <div class="map-filter-bar" style="margin-bottom: 16px;">
+        <div class="filter-item">
+          <label>Origem / Zona de Tráfego</label>
+          <select class="filter-select" id="filterLogsZone" onchange="filterLiveLogs()">
+            <option value="all" selected>Todas as Zonas (WAN + LAN)</option>
+            <option value="WAN">🌐 WAN (Internet 0.0.0.0/0)</option>
+            <option value="LAN">🏠 LAN (Rede Interna)</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label>Cadeia (Chain)</label>
+          <select class="filter-select" id="filterLogsChain" onchange="filterLiveLogs()">
+            <option value="all">Todas as Chains</option>
+            <option value="input">Input (Direto ao Router)</option>
+            <option value="forward">Forward (Passante)</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label>Filtrar por Severidade</label>
+          <select class="filter-select" id="filterLogsThreats" onchange="filterLiveLogs()">
+            <option value="all">Todos os Pacotes</option>
+            <option value="threats">Somente Ameaças Confirmadas</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label>Buscar IP ou Porta</label>
+          <input type="text" class="filter-input" id="filterLogsSearch" placeholder="Ex: 192.168... ou 8291" oninput="filterLiveLogs()">
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <div class="card-title">Live Syslog Stream — MikroTik Firewall & Eventos</div>
@@ -253,13 +317,15 @@
           <table class="soc-table">
             <thead>
               <tr>
-                <th style="width:90px;">Horário</th>
+                <th style="width:85px;">Horário</th>
+                <th style="width:105px;">Zona</th>
                 <th style="width:75px;">Ação</th>
                 <th style="width:75px;">Chain</th>
                 <th style="width:75px;">Proto</th>
+                <th style="width:90px;">Interface</th>
                 <th>Origem (Atacante)</th>
                 <th>Destino (MikroTik)</th>
-                <th style="width:70px;">Tamanho</th>
+                <th style="width:65px;">Tam.</th>
                 <th>Ameaça / Motivo / Flags</th>
               </tr>
             </thead>
@@ -293,6 +359,7 @@
             <thead>
               <tr>
                 <th>Endereço IP</th>
+                <th style="width:110px;">Zona / Origem</th>
                 <th>Localização GeoIP</th>
                 <th>Motivo do Bloqueio</th>
                 <th>Data do Bloqueio</th>
@@ -453,14 +520,37 @@
               </div>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">Nome do Roteador</label>
-              <input type="text" class="form-control" id="routerName" value="MikroTik Core Gateway">
+            <div class="grid-2col" style="margin-bottom:0; gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Interfaces Internet (WAN / 0.0.0.0/0)</label>
+                <input type="text" class="form-control" id="mkWanInterfaces" placeholder="ether1, pppoe-out1, wan">
+                <small style="font-size:0.7rem; color:var(--text-muted);">Interfaces com a rota default para a Internet</small>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Interfaces Rede Local (LAN)</label>
+                <input type="text" class="form-control" id="mkLanInterfaces" placeholder="bridge, lan, ether2, ether3">
+                <small style="font-size:0.7rem; color:var(--text-muted);">Interfaces de rede interna para monitoramento</small>
+              </div>
             </div>
 
-            <div style="display:flex; gap:12px; margin-top:16px;">
+            <div class="grid-2col" style="margin-bottom:0; gap:12px;">
+              <div class="form-group">
+                <label class="form-label">Nome da Address-List Quarentena LAN</label>
+                <input type="text" class="form-control" id="mkLanQuarantineList" value="TIKSENTRY_LAN_QUARANTINE">
+                <small style="font-size:0.7rem; color:var(--text-muted);">Isola hosts infectados na LAN sem derrubar a rede</small>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Nome do Roteador</label>
+                <input type="text" class="form-control" id="routerName" value="MikroTik Core Gateway">
+              </div>
+            </div>
+
+            <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:16px;">
               <button type="button" class="btn btn-outline" id="btnTestConnection" onclick="testMikrotikConnection()">
                 ⚡ Testar Conexão
+              </button>
+              <button type="button" class="btn btn-outline" id="btnDetectWan" style="border-color:var(--cyan); color:var(--cyan);" onclick="detectMikrotikWan()">
+                🔍 Auto-Detectar Rota 0.0.0.0/0 & WAN
               </button>
               <button type="submit" class="btn btn-primary">
                 Salvar Configurações
@@ -469,6 +559,7 @@
           </form>
 
           <div id="connectionTestResult" style="margin-top:16px; display:none;"></div>
+          <div id="wanDetectResult" style="margin-top:16px; display:none;"></div>
         </div>
 
         <!-- Gerador de Script MikroTik -->
@@ -689,11 +780,11 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 
   <!-- Módulos do Sistema -->
-  <script src="/js/charts.js?v=1.0.3"></script>
-  <script src="/js/map.js?v=1.0.3"></script>
-  <script src="/js/ids.js?v=1.0.3"></script>
-  <script src="/js/mikrotik.js?v=1.0.3"></script>
-  <script src="/js/reports.js?v=1.0.3"></script>
-  <script src="/js/app.js?v=1.0.3"></script>
+  <script src="/js/charts.js?v=1.0.4"></script>
+  <script src="/js/map.js?v=1.0.4"></script>
+  <script src="/js/ids.js?v=1.0.4"></script>
+  <script src="/js/mikrotik.js?v=1.0.4"></script>
+  <script src="/js/reports.js?v=1.0.4"></script>
+  <script src="/js/app.js?v=1.0.4"></script>
 </body>
 </html>

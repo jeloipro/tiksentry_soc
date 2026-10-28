@@ -5,8 +5,8 @@ const TARGET_PORT = parseInt(process.env.SYSLOG_PORT, 10) || 514;
 
 const client = dgram.createSocket('udp4');
 
-// Amostra de IPs globais conhecidos por scanners e ataques
-const ATTACK_PROFILES = [
+// Amostra de IPs globais conhecidos por scanners e ataques externos (Internet / WAN)
+const WAN_ATTACK_PROFILES = [
   { ip: '185.220.101.5', country: 'RU', type: 'winbox', ports: [8291], proto: 'TCP', flags: 'SYN' },
   { ip: '114.119.160.10', country: 'CN', type: 'ssh', ports: [22], proto: 'TCP', flags: 'SYN' },
   { ip: '45.33.32.156', country: 'US', type: 'scan', ports: [21, 22, 23, 25, 80, 443, 3389, 8080, 8291, 8728], proto: 'TCP', flags: 'SYN' },
@@ -18,27 +18,48 @@ const ATTACK_PROFILES = [
   { ip: '103.251.167.20', country: 'VN', type: 'dos', ports: [80], proto: 'TCP', flags: 'SYN' }
 ];
 
+// Amostra de dispositivos comprometidos na Rede Local (LAN)
+const LAN_ATTACK_PROFILES = [
+  { ip: '192.168.88.45', type: 'lan_winbox_brute', ports: [8291], proto: 'TCP', flags: 'SYN' },
+  { ip: '192.168.88.112', type: 'lan_ssh_brute', ports: [22], proto: 'TCP', flags: 'SYN' },
+  { ip: '192.168.88.204', type: 'lan_portscan', ports: [21, 22, 23, 80, 443, 8291, 8728], proto: 'TCP', flags: 'SYN' },
+  { ip: '10.0.0.85', type: 'lan_web_scan', ports: [80, 443, 8080], proto: 'TCP', flags: 'SYN' }
+];
+
 function getRandomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function generateMikroTikLog() {
-  const profile = ATTACK_PROFILES[Math.floor(Math.random() * ATTACK_PROFILES.length)];
+  const isLan = Math.random() < 0.25; // 25% tráfego suspeito interno LAN, 75% ataques externos WAN
+  const profile = isLan 
+    ? LAN_ATTACK_PROFILES[Math.floor(Math.random() * LAN_ATTACK_PROFILES.length)]
+    : WAN_ATTACK_PROFILES[Math.floor(Math.random() * WAN_ATTACK_PROFILES.length)];
+
   const srcPort = getRandomInt(40000, 65000);
   const dstPort = profile.ports[Math.floor(Math.random() * profile.ports.length)];
   const dstIp = '192.168.88.1';
   const len = getRandomInt(40, 128);
-
   const flagsStr = profile.flags ? `(${profile.flags})` : '';
 
-  // Formato padrão MikroTik Firewall Drop
-  return `firewall,warning forward: in:ether1-wan out:bridge1, src-mac 00:0c:42:ff:ee:01, proto ${profile.proto} ${flagsStr}, ${profile.ip}:${srcPort}->${dstIp}:${dstPort}, len ${len}`;
+  if (isLan) {
+    // Tráfego interno suspeito chegando na cadeia input da interface bridge/LAN
+    return `[TIKSENTRY-LAN-DROP] firewall,warning input: in:bridge1 out:(unknown 0), src-mac 00:0c:42:ee:11:22, proto ${profile.proto} ${flagsStr}, ${profile.ip}:${srcPort}->${dstIp}:${dstPort}, len ${len}`;
+  } else {
+    // Tráfego externo da Internet (WAN / rota 0.0.0.0/0) chegando na cadeia input ou forward
+    const chain = Math.random() < 0.7 ? 'input' : 'forward';
+    return `[TIKSENTRY-WAN-DROP] firewall,warning ${chain}: in:ether1-wan out:bridge1, src-mac 00:0c:42:ff:ee:01, proto ${profile.proto} ${flagsStr}, ${profile.ip}:${srcPort}->${dstIp}:${dstPort}, len ${len}`;
+  }
 }
 
 function generateLoginFailLog() {
+  const isLan = Math.random() < 0.3;
   const users = ['admin', 'root', 'support', 'mikrotik', 'cisco'];
   const user = users[Math.floor(Math.random() * users.length)];
-  const profile = ATTACK_PROFILES[Math.floor(Math.random() * ATTACK_PROFILES.length)];
+  const profile = isLan
+    ? LAN_ATTACK_PROFILES[Math.floor(Math.random() * LAN_ATTACK_PROFILES.length)]
+    : WAN_ATTACK_PROFILES[Math.floor(Math.random() * WAN_ATTACK_PROFILES.length)];
+
   const services = ['winbox', 'ssh', 'web', 'api'];
   const srv = services[Math.floor(Math.random() * services.length)];
 
