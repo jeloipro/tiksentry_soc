@@ -16,6 +16,7 @@ class SyslogServer {
     this.cachedWanInterfaces = ['ether1', 'pppoe-out1', 'wan', 'sfp-sfpplus1', 'internet'];
     this.cachedLanInterfaces = ['bridge', 'lan', 'bridge1', 'ether2', 'ether3', 'ether4', 'ether5'];
     this.lastCacheRefresh = 0;
+    this.isFlushing = false;
   }
 
   setBroadcaster(fn) {
@@ -159,49 +160,56 @@ class SyslogServer {
   }
 
   async flushQueue() {
-    if (this.writeQueue.length === 0) return;
-
-    const itemsToSave = this.writeQueue.splice(0, 100);
-    const operations = itemsToSave.map(log => ({
-      sql: `
-        INSERT INTO firewall_logs (
-          timestamp, chain, action, protocol, src_ip, src_port, dst_ip, dst_port,
-          in_interface, out_interface, packet_size, tcp_flags, connection_state,
-          src_mac, country, city, country_code, latitude, longitude,
-          is_threat, threat_reason, zone, raw_message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      params: [
-        log.timestamp,
-        log.chain,
-        log.action,
-        log.protocol,
-        log.src_ip,
-        log.src_port,
-        log.dst_ip,
-        log.dst_port,
-        log.in_interface,
-        log.out_interface,
-        log.packet_size,
-        log.tcp_flags,
-        log.connection_state,
-        log.src_mac,
-        log.country,
-        log.city,
-        log.country_code,
-        log.latitude,
-        log.longitude,
-        log.is_threat ? 1 : 0,
-        log.threat_reason,
-        log.zone || 'WAN',
-        log.raw_message
-      ]
-    }));
+    if (this.isFlushing || this.writeQueue.length === 0) return;
+    this.isFlushing = true;
 
     try {
-      await db.transaction(operations);
+      while (this.writeQueue.length > 0) {
+        const itemsToSave = this.writeQueue.splice(0, 100);
+        if (itemsToSave.length === 0) break;
+
+        const operations = itemsToSave.map(log => ({
+          sql: `
+            INSERT INTO firewall_logs (
+              timestamp, chain, action, protocol, src_ip, src_port, dst_ip, dst_port,
+              in_interface, out_interface, packet_size, tcp_flags, connection_state,
+              src_mac, country, city, country_code, latitude, longitude,
+              is_threat, threat_reason, zone, raw_message
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          params: [
+            log.timestamp,
+            log.chain,
+            log.action,
+            log.protocol,
+            log.src_ip,
+            log.src_port,
+            log.dst_ip,
+            log.dst_port,
+            log.in_interface,
+            log.out_interface,
+            log.packet_size,
+            log.tcp_flags,
+            log.connection_state,
+            log.src_mac,
+            log.country,
+            log.city,
+            log.country_code,
+            log.latitude,
+            log.longitude,
+            log.is_threat ? 1 : 0,
+            log.threat_reason,
+            log.zone || 'WAN',
+            log.raw_message
+          ]
+        }));
+
+        await db.transaction(operations);
+      }
     } catch (err) {
       console.error('[Syslog UDP] Erro ao gravar lote de logs no SQLite:', err.message);
+    } finally {
+      this.isFlushing = false;
     }
   }
 

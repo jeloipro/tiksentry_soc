@@ -45,18 +45,39 @@ const all = (sql, params = []) => {
   });
 };
 
-// Executa um lote de comandos dentro de uma transação
-const transaction = async (operations) => {
-  await run('BEGIN TRANSACTION');
-  try {
-    for (const op of operations) {
-      await run(op.sql, op.params);
+// Fila de execução estritamente sequencial para transações SQLite (mutex contra concorrência assíncrona)
+let transactionQueue = Promise.resolve();
+
+// Executa um lote de comandos dentro de uma transação serializada
+const transaction = (operations) => {
+  const execute = async () => {
+    if (!operations || operations.length === 0) return;
+
+    let inTransaction = false;
+    try {
+      await run('BEGIN IMMEDIATE TRANSACTION');
+      inTransaction = true;
+
+      for (const op of operations) {
+        await run(op.sql, op.params);
+      }
+
+      await run('COMMIT');
+      inTransaction = false;
+    } catch (err) {
+      if (inTransaction) {
+        try {
+          await run('ROLLBACK');
+        } catch (_) {}
+      }
+      throw err;
     }
-    await run('COMMIT');
-  } catch (err) {
-    await run('ROLLBACK');
-    throw err;
-  }
+  };
+
+  // Garante ordem estrita FIFO e que transações nunca colidam
+  const next = transactionQueue.then(execute, execute);
+  transactionQueue = next.catch(() => {});
+  return next;
 };
 
 // Inicialização de Tabelas
@@ -209,9 +230,6 @@ const migrateColumns = async () => {
 };
 
 const seedDefaultRules = async () => {
-  const countRow = await get('SELECT COUNT(*) as count FROM ids_rules');
-  if (countRow && countRow.count > 0) return;
-
   const defaultRules = [
     {
       id: 'rule-winbox-bruteforce',
@@ -338,14 +356,59 @@ const seedDefaultRules = async () => {
       threshold_window_seconds: 30,
       target_ports: null,
       protocol: null
+    },
+    {
+      id: 'rule-lan-smb-ransomware',
+      name: 'Ransomware / SMB Outbound Leak',
+      description: 'Dispositivo interno tentando espalhar SMB/Ransomware (portas 445/139) para a Internet',
+      category: 'trojan',
+      severity: 'critical',
+      enabled: 1,
+      auto_block: 1,
+      block_duration_minutes: 180,
+      threshold_count: 2,
+      threshold_window_seconds: 60,
+      target_ports: '445,139',
+      protocol: 'tcp'
+    },
+    {
+      id: 'rule-lan-spambot',
+      name: 'Spam Botnet Outbound (SMTP 25)',
+      description: 'Máquina interna infectada disparando conexões massivas na porta SMTP (25) para envio de spam',
+      category: 'botnet',
+      severity: 'high',
+      enabled: 1,
+      auto_block: 1,
+      block_duration_minutes: 120,
+      threshold_count: 3,
+      threshold_window_seconds: 60,
+      target_ports: '25',
+      protocol: 'tcp'
+    },
+    {
+      id: 'rule-lan-c2-mining',
+      name: 'Malware C2 / Cryptomining Outbound',
+      description: 'Tráfego outbound suspeito para pools de mineração de cripto ou servidores C2 (portas 3333, 4444, 5555, etc.)',
+      category: 'malware',
+      severity: 'high',
+      enabled: 1,
+      auto_block: 1,
+      block_duration_minutes: 120,
+      threshold_count: 3,
+      threshold_window_seconds: 60,
+      target_ports: '3333,4444,5555,6666,7777,8888,9999',
+      protocol: 'tcp'
     }
   ];
 
   for (const r of defaultRules) {
-    await run(`
-      INSERT INTO ids_rules (id, name, description, category, severity, enabled, auto_block, block_duration_minutes, threshold_count, threshold_window_seconds, target_ports, protocol)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [r.id, r.name, r.description, r.category, r.severity, r.enabled, r.auto_block, r.block_duration_minutes, r.threshold_count, r.threshold_window_seconds, r.target_ports, r.protocol]);
+    const existing = await get('SELECT id FROM ids_rules WHERE id = ?', [r.id]);
+    if (!existing) {
+      await run(`
+        INSERT INTO ids_rules (id, name, description, category, severity, enabled, auto_block, block_duration_minutes, threshold_count, threshold_window_seconds, target_ports, protocol)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [r.id, r.name, r.description, r.category, r.severity, r.enabled, r.auto_block, r.block_duration_minutes, r.threshold_count, r.threshold_window_seconds, r.target_ports, r.protocol]);
+    }
   }
   console.log(`[DB] ${defaultRules.length} regras IDS padrão registradas.`);
 };

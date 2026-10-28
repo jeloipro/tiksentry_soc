@@ -158,7 +158,7 @@ router.get('/script', async (req, res) => {
 
     const script = `# ====================================================================
 # SCRIPT DE CONFIGURACAO AUTOMATICA MIKROTIK -> TIKSENTRY SOC
-# Identificacao de Atacantes: Internet (WAN 0.0.0.0/0) vs Rede Interna (LAN)
+# Monitoramento: Internet (WAN 0.0.0.0/0) vs Rede Interna (LAN Outbound/Inbound)
 # Copie e cole no New Terminal do seu Winbox / SSH
 # ====================================================================
 
@@ -166,10 +166,11 @@ router.get('/script', async (req, res) => {
 /system logging action
 add name=tiksentry-remote target=remote remote=${serverHost} remote-port=${syslogPort} src-address=0.0.0.0 bsd-syslog=yes syslog-facility=daemon
 
-# 2. Enviar logs de Firewall e Tentativas de Login para o TikSentry
+# 2. Enviar logs de Firewall, Tentativas de Login e Autenticacao
 /system logging
 add topics=firewall action=tiksentry-remote
 add topics=system,error,critical action=tiksentry-remote
+add topics=account action=tiksentry-remote
 
 # 3. Bloqueio Automatico da Address-List de Atacantes Externos (WAN)
 /ip firewall filter
@@ -178,14 +179,34 @@ add chain=forward src-address-list=${blockList} action=drop comment="[TikSentry]
 
 # 4. Quarentena de Hosts Locais Comprometidos / Varreduras Internas (LAN)
 add chain=input src-address-list=${quarantineList} action=drop comment="[TikSentry] Quarentena LAN de Dispositivo Infectado" place-before=2
+add chain=forward src-address-list=${quarantineList} action=drop comment="[TikSentry] Quarentena LAN Forward de Host Infectado" place-before=3
 
-# 5. Log e Descarte de Ataques Externos vindos da Internet (Cadeia Input - Rota 0.0.0.0/0)
-# (Geralmente quem ataca o roteador de fora bate na porta 8291, 22, 23, 80, 8728)
-add chain=input in-interface-list=WAN action=drop log=yes log-prefix="[TIKSENTRY-WAN-DROP]" comment="[TikSentry] Descarte e Log de Ataques da Internet"
+# --------------------------------------------------------------------
+# 5. ATAQUES DA INTERNET (WAN / Rota 0.0.0.0/0):
+# Captura invasores externos tentando Winbox, SSH, Telnet, API, Web, Scans
+# --------------------------------------------------------------------
+# 5.1 Descarte e Log de Ataques externos direcionados ao Roteador (Input)
+add chain=input in-interface-list=WAN connection-state=invalid action=drop log=yes log-prefix="[TIKSENTRY-WAN-DROP]" comment="[TikSentry] Descarte Pacotes Invalidos WAN"
+add chain=input in-interface-list=WAN action=drop log=yes log-prefix="[TIKSENTRY-WAN-DROP]" comment="[TikSentry] Descarte e Log de Ataques da Internet (Input)"
 
-# 6. Log e Monitoramento de Conexoes Suspeitas da Rede Interna (Cadeia Input - LAN)
-# (Detecta scanners locais e maquinas internas infectadas tentando invadir o MikroTik)
-add chain=input in-interface-list=LAN connection-state=invalid action=drop log=yes log-prefix="[TIKSENTRY-LAN-DROP]" comment="[TikSentry] Descarte e Log de Anomalias LAN"
+# 5.2 Descarte e Log de Ataques externos tentando invadir a Rede Interna (Forward)
+add chain=forward in-interface-list=WAN connection-state=new connection-nat-state=!dstnat action=drop log=yes log-prefix="[TIKSENTRY-WAN-DROP]" comment="[TikSentry] Descarte e Log de Invasoes WAN para Rede Interna"
+
+# --------------------------------------------------------------------
+# 6. AMEACAS DA REDE INTERNA (LAN / Invasao e Vazamento de Interno para Externo):
+# Detecta computadores infectados, Ransomware, Spam Botnets e Mineracao
+# --------------------------------------------------------------------
+# 6.1 Rastros de Ransomware / Propagacao SMB (Portas 445 e 139) saindo para a Internet
+add chain=forward in-interface-list=LAN out-interface-list=WAN protocol=tcp dst-port=445,139 action=drop log=yes log-prefix="[TIKSENTRY-LAN-DROP]" comment="[TikSentry] Alerta LAN: Ransomware / SMB Outbound"
+
+# 6.2 Rastros de Maquina Zumbi / Spam Botnet (Porta 25 SMTP saindo para a Internet)
+add chain=forward in-interface-list=LAN out-interface-list=WAN protocol=tcp dst-port=25 action=drop log=yes log-prefix="[TIKSENTRY-LAN-DROP]" comment="[TikSentry] Alerta LAN: Maquina Infectada Spam Botnet (SMTP 25)"
+
+# 6.3 Rastros de Malware C2 / Cryptomining (Portas 3333, 4444, 5555, 6666, 7777, 8888, 9999)
+add chain=forward in-interface-list=LAN out-interface-list=WAN protocol=tcp dst-port=3333,4444,5555,6666,7777,8888,9999 action=drop log=yes log-prefix="[TIKSENTRY-LAN-DROP]" comment="[TikSentry] Alerta LAN: Malware C2 / Cryptomining para fora"
+
+# 6.4 Varreduras ou ataques de maquinas da LAN tentando invadir o Roteador MikroTik (Input)
+add chain=input in-interface-list=LAN connection-state=invalid action=drop log=yes log-prefix="[TIKSENTRY-LAN-DROP]" comment="[TikSentry] Descarte e Log de Anomalias LAN no Router"
 `;
 
     res.json({
