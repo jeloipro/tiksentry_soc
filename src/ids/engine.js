@@ -228,27 +228,30 @@ class IdsEngine {
         zone
       ]).catch(() => {});
 
-      // Notifica via WebSocket para o mapa e dashboard
+      // Notifica via WebSocket para o mapa e dashboard apenas se alertas estiverem ativos
       if (this.broadcastCallback) {
-        this.broadcastCallback({
-          type: 'IDS_ALERT',
-          alert: {
-            id: Date.now(),
-            timestamp: nowIso,
-            src_ip: srcIp,
-            dst_port: log.dst_port,
-            protocol: log.protocol,
-            rule_name: ruleDisplayName,
-            severity: rule.severity,
-            zone: zone,
-            auto_blocked: autoBlocked === 1,
-            country: log.country,
-            city: log.city,
-            country_code: log.country_code,
-            latitude: log.latitude,
-            longitude: log.longitude
-          }
-        });
+        const alertsEnabled = await db.getSetting('alerts_enabled', 'true');
+        if (alertsEnabled === 'true') {
+          this.broadcastCallback({
+            type: 'IDS_ALERT',
+            alert: {
+              id: Date.now(),
+              timestamp: nowIso,
+              src_ip: srcIp,
+              dst_port: log.dst_port,
+              protocol: log.protocol,
+              rule_name: ruleDisplayName,
+              severity: rule.severity,
+              zone: zone,
+              auto_blocked: autoBlocked === 1,
+              country: log.country,
+              city: log.city,
+              country_code: log.country_code,
+              latitude: log.latitude,
+              longitude: log.longitude
+            }
+          });
+        }
       }
     }
   }

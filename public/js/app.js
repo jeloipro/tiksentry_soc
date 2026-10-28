@@ -5,6 +5,7 @@
 let wsConnection = null;
 let isLogStreamingPaused = false;
 let isAudioMuted = false;
+let isAlertsEnabled = localStorage.getItem('tiksentry_alerts_enabled') !== 'false';
 let audioContext = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -12,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initWebSocket();
   initAudio();
+  updateAlertsToggleUI(isAlertsEnabled);
 
   // Inicializa componentes
   if (window.initCharts) window.initCharts();
@@ -133,6 +135,11 @@ function handleWebSocketMessage(msg) {
       window.triggerLiveAttackOnMap(msg.log);
     }
   } else if (msg.type === 'IDS_ALERT') {
+    // Se alertas globais estiverem desativados pelo usuário, ignora completamente
+    if (!isAlertsEnabled || localStorage.getItem('tiksentry_alerts_enabled') === 'false') {
+      return;
+    }
+
     const isLan = msg.alert && msg.alert.zone === 'LAN';
     const hideLan = localStorage.getItem('tiksentry_hide_lan_alerts') === 'true';
     if (isLan && hideLan) {
@@ -238,6 +245,9 @@ function filterLiveLogs() {
  * Exibe banner superior para alertas críticos
  */
 function showIdsAlertBanner(alert) {
+  if (!isAlertsEnabled || localStorage.getItem('tiksentry_alerts_enabled') === 'false') {
+    return;
+  }
   const banner = document.getElementById('alertBanner');
   const textEl = document.getElementById('alertBannerText');
   const btnMute = document.getElementById('btnMuteLanAlerts');
@@ -328,6 +338,57 @@ function updateLanStatusUI(isActive) {
   }
   if (btn) {
     btn.textContent = isActive ? 'Silenciar / Desativar' : 'Ativar Monitoramento';
+  }
+}
+
+/**
+ * Habilita ou desabilita todos os alertas do sistema (global)
+ */
+async function toggleAlertsSystem(forceState = null) {
+  if (forceState !== null) {
+    isAlertsEnabled = Boolean(forceState);
+  } else {
+    isAlertsEnabled = !isAlertsEnabled;
+  }
+
+  localStorage.setItem('tiksentry_alerts_enabled', isAlertsEnabled ? 'true' : 'false');
+
+  if (!isAlertsEnabled) {
+    dismissAlertBanner();
+  }
+
+  updateAlertsToggleUI(isAlertsEnabled);
+
+  // Sincroniza com o backend
+  try {
+    await fetch('/api/mikrotik/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alerts_enabled: isAlertsEnabled })
+    });
+  } catch {}
+
+  if (isAlertsEnabled) {
+    alert('🔔 Alertas de segurança ATIVADOS! O painel exibirá avisos e banners de ameaças em tempo real.');
+  } else {
+    alert('🔕 Alertas de segurança DESATIVADOS! Banners e sons foram silenciados. Para reativar a qualquer momento, clique no botão "ALERTAS" no topo da tela.');
+  }
+}
+
+function updateAlertsToggleUI(enabled) {
+  const btn = document.getElementById('btnToggleAlerts');
+  const textEl = document.getElementById('btnToggleAlertsText');
+  if (btn) {
+    if (enabled) {
+      btn.className = 'btn-alert-control';
+      btn.title = 'Alertas IDS Ativos. Clique para Desativar.';
+    } else {
+      btn.className = 'btn-alert-control disabled';
+      btn.title = 'Alertas IDS Desativados. Clique para Ativar.';
+    }
+  }
+  if (textEl) {
+    textEl.textContent = enabled ? 'ALERTAS: ATIVOS' : 'ALERTAS: DESATIVADOS';
   }
 }
 
@@ -443,3 +504,5 @@ window.dismissAlertBanner = dismissAlertBanner;
 window.muteLanAlerts = muteLanAlerts;
 window.quickToggleLanMonitor = quickToggleLanMonitor;
 window.updateLanStatusUI = updateLanStatusUI;
+window.toggleAlertsSystem = toggleAlertsSystem;
+window.updateAlertsToggleUI = updateAlertsToggleUI;

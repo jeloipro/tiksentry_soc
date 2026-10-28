@@ -46,6 +46,10 @@
         <span class="status-dot" id="headerWsStatus"></span> WS LIVE
       </div>
       <div class="clock-display" id="headerClock">--:--:--</div>
+      <button class="btn-alert-control" id="btnToggleAlerts" onclick="toggleAlertsSystem()" title="Clique para Ativar ou Desativar Alertas em tempo real">
+        <span class="alert-indicator-dot"></span>
+        <span id="btnToggleAlertsText">ALERTAS: ATIVOS</span>
+      </button>
       <button class="btn-icon" id="btnToggleMute" title="Silenciar Alertas Sonoros">🔔</button>
     </div>
   </header>
@@ -92,9 +96,10 @@
       <span class="alert-tag">ALERTA IDS</span>
       <span id="alertBannerText">Ataque detectado e mitigado no firewall!</span>
     </div>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <button class="btn btn-outline btn-sm" id="btnMuteLanAlerts" onclick="muteLanAlerts()" style="display:none; border-color:var(--amber); color:var(--amber); font-size:0.75rem;">🔇 Silenciar Alertas da LAN</button>
-      <button class="btn btn-outline btn-sm" onclick="dismissAlertBanner()">Dispensar</button>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" id="btnMuteLanAlerts" onclick="muteLanAlerts()" style="display:none; border-color:var(--amber); color:var(--amber); font-size:0.75rem; padding:4px 10px;" title="Silencia alertas da rede interna mantendo os da internet">🏠 Silenciar LAN</button>
+      <button class="btn btn-outline btn-sm" onclick="toggleAlertsSystem(false)" style="border-color:var(--crimson); color:var(--crimson); font-size:0.75rem; padding:4px 10px;" title="Desativa todos os banners e sons de alerta">🔕 Desativar Alertas</button>
+      <button class="btn btn-outline btn-sm" onclick="dismissAlertBanner()" style="font-size:0.75rem; padding:4px 10px;">✖ Dispensar</button>
     </div>
   </div>
 

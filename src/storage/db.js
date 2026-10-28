@@ -428,6 +428,7 @@ const seedDefaultSettings = async () => {
     'lan_interfaces': 'bridge,lan,bridge1,ether2,ether3,ether4,ether5',
     'lan_quarantine_list': 'TIKSENTRY_LAN_QUARANTINE',
     'monitor_lan_threats': 'false',
+    'alerts_enabled': 'true',
     'auto_detect_wan': 'true',
     'router_lat': config.router.lat.toString(),
     'router_lng': config.router.lng.toString(),
