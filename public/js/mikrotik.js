@@ -20,6 +20,7 @@ async function loadMikrotikConfig() {
     if (document.getElementById('mkWanInterfaces')) document.getElementById('mkWanInterfaces').value = data.wan_interfaces || 'ether1,pppoe-out1,wan';
     if (document.getElementById('mkLanInterfaces')) document.getElementById('mkLanInterfaces').value = data.lan_interfaces || 'bridge,lan,bridge1';
     if (document.getElementById('mkLanQuarantineList')) document.getElementById('mkLanQuarantineList').value = data.lan_quarantine_list || 'TIKSENTRY_LAN_QUARANTINE';
+    if (document.getElementById('mkMonitorLan')) document.getElementById('mkMonitorLan').checked = data.monitor_lan_threats === true;
     if (document.getElementById('routerLat')) document.getElementById('routerLat').value = data.router_lat || '-23.5505';
     if (document.getElementById('routerLng')) document.getElementById('routerLng').value = data.router_lng || '-46.6333';
     if (document.getElementById('routerName')) document.getElementById('routerName').value = data.router_name || 'MikroTik Gateway';
@@ -47,6 +48,7 @@ async function saveMikrotikConfig(e) {
     wan_interfaces: document.getElementById('mkWanInterfaces')?.value,
     lan_interfaces: document.getElementById('mkLanInterfaces')?.value,
     lan_quarantine_list: document.getElementById('mkLanQuarantineList')?.value,
+    monitor_lan_threats: document.getElementById('mkMonitorLan')?.checked,
     router_lat: document.getElementById('routerLat')?.value,
     router_lng: document.getElementById('routerLng')?.value,
     router_name: document.getElementById('routerName')?.value

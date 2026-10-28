@@ -133,6 +133,13 @@ function handleWebSocketMessage(msg) {
       window.triggerLiveAttackOnMap(msg.log);
     }
   } else if (msg.type === 'IDS_ALERT') {
+    const isLan = msg.alert && msg.alert.zone === 'LAN';
+    const hideLan = localStorage.getItem('tiksentry_hide_lan_alerts') === 'true';
+    if (isLan && hideLan) {
+      // Alerta da rede interna (LAN) silenciado a pedido do usuário
+      return;
+    }
+
     showIdsAlertBanner(msg.alert);
     playAlertTone();
     if (window.triggerLiveAttackOnMap) {
@@ -233,9 +240,18 @@ function filterLiveLogs() {
 function showIdsAlertBanner(alert) {
   const banner = document.getElementById('alertBanner');
   const textEl = document.getElementById('alertBannerText');
+  const btnMute = document.getElementById('btnMuteLanAlerts');
   if (!banner || !textEl) return;
 
   const isLan = alert.zone === 'LAN';
+  if (isLan && localStorage.getItem('tiksentry_hide_lan_alerts') === 'true') {
+    return;
+  }
+
+  if (btnMute) {
+    btnMute.style.display = isLan ? 'inline-block' : 'none';
+  }
+
   const zoneBadge = isLan ? '🏠 AMEAÇA INTERNA / LAN' : '🌐 ATAQUE EXTERNO / WAN';
 
   textEl.innerHTML = `
@@ -258,6 +274,61 @@ function showIdsAlertBanner(alert) {
 function dismissAlertBanner() {
   const banner = document.getElementById('alertBanner');
   if (banner) banner.classList.add('hidden');
+}
+
+/**
+ * Silencia e desativa alertas da LAN com 1 clique
+ */
+async function muteLanAlerts() {
+  localStorage.setItem('tiksentry_hide_lan_alerts', 'true');
+  dismissAlertBanner();
+  try {
+    await fetch('/api/mikrotik/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monitor_lan_threats: false })
+    });
+  } catch {}
+  updateLanStatusUI(false);
+  alert('Alertas da Rede Interna (LAN) desativados! O sistema agora focará apenas nos ataques da Internet (WAN).');
+}
+
+/**
+ * Toggle rápido de monitoramento da LAN no Dashboard
+ */
+async function quickToggleLanMonitor() {
+  try {
+    const res = await fetch('/api/mikrotik/config');
+    const json = await res.json();
+    const current = json.data?.monitor_lan_threats;
+    const next = !current;
+    await fetch('/api/mikrotik/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monitor_lan_threats: next })
+    });
+    localStorage.setItem('tiksentry_hide_lan_alerts', next ? 'false' : 'true');
+    updateLanStatusUI(next);
+    alert(next ? 'Monitoramento de ameaças da LAN ativado com sucesso.' : 'Monitoramento de ameaças da LAN desativado com sucesso.');
+  } catch (err) {
+    alert('Erro ao alterar configuração: ' + err.message);
+  }
+}
+
+function updateLanStatusUI(isActive) {
+  const badge = document.getElementById('badgeLanStatus');
+  const btn = document.getElementById('btnToggleLanMonitor');
+  const chk = document.getElementById('mkMonitorLan');
+  if (chk) chk.checked = isActive;
+  if (badge) {
+    badge.textContent = isActive ? 'LAN ATIVA' : 'LAN SILENCIADA';
+    badge.style.background = isActive ? 'rgba(255,170,0,0.15)' : 'rgba(255,255,255,0.05)';
+    badge.style.color = isActive ? 'var(--amber)' : 'var(--text-muted)';
+    badge.style.borderColor = isActive ? 'rgba(255,170,0,0.4)' : 'var(--border-color)';
+  }
+  if (btn) {
+    btn.textContent = isActive ? 'Silenciar / Desativar' : 'Ativar Monitoramento';
+  }
 }
 
 /**
@@ -338,6 +409,14 @@ async function loadDashboardStats() {
     if (repJson.success && window.updateDashboardCharts) {
       window.updateDashboardCharts(repJson.data);
     }
+    // Sincroniza estado de monitoramento da LAN
+    try {
+      const cfgRes = await fetch('/api/mikrotik/config');
+      const cfgJson = await cfgRes.json();
+      if (cfgJson.success && cfgJson.data) {
+        updateLanStatusUI(cfgJson.data.monitor_lan_threats === true);
+      }
+    } catch {}
   } catch (err) {
     console.error('Erro ao atualizar estatísticas:', err);
   }
@@ -361,3 +440,6 @@ window.toggleLogStreaming = toggleLogStreaming;
 window.clearLogStreamTable = clearLogStreamTable;
 window.filterLiveLogs = filterLiveLogs;
 window.dismissAlertBanner = dismissAlertBanner;
+window.muteLanAlerts = muteLanAlerts;
+window.quickToggleLanMonitor = quickToggleLanMonitor;
+window.updateLanStatusUI = updateLanStatusUI;

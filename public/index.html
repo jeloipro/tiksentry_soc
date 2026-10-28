@@ -92,7 +92,10 @@
       <span class="alert-tag">ALERTA IDS</span>
       <span id="alertBannerText">Ataque detectado e mitigado no firewall!</span>
     </div>
-    <button class="btn btn-outline btn-sm" onclick="dismissAlertBanner()">Dispensar</button>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="btn btn-outline btn-sm" id="btnMuteLanAlerts" onclick="muteLanAlerts()" style="display:none; border-color:var(--amber); color:var(--amber); font-size:0.75rem;">🔇 Silenciar Alertas da LAN</button>
+      <button class="btn btn-outline btn-sm" onclick="dismissAlertBanner()">Dispensar</button>
+    </div>
   </div>
 
   <!-- ================================================================
@@ -144,7 +147,7 @@
           </div>
         </div>
 
-        <div class="card" style="border-left: 4px solid var(--amber); background: linear-gradient(135deg, rgba(255, 170, 0, 0.05), transparent);">
+        <div class="card" id="cardLanThreats" style="border-left: 4px solid var(--amber); background: linear-gradient(135deg, rgba(255, 170, 0, 0.05), transparent);">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
               <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:var(--amber); font-weight:700;">
@@ -152,10 +155,13 @@
               </div>
               <div style="font-size:1.8rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin:4px 0;" id="dashLanThreats">0</div>
               <div style="font-size:0.75rem; color:var(--text-muted);">
-                Varreduras locais / hosts potencialmente infectados (<span id="dashLanDevices" style="color:#fff; font-weight:600;">0</span> dispositivos suspeitos)
+                Varreduras locais / hosts suspeitos (<span id="dashLanDevices" style="color:#fff; font-weight:600;">0</span> dispositivos)
               </div>
             </div>
-            <span class="action-badge" style="background:rgba(255,170,0,0.15); color:var(--amber); border:1px solid rgba(255,170,0,0.4); font-size:0.8rem; padding:4px 10px;">LAN INTERNA</span>
+            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+              <span class="action-badge" id="badgeLanStatus" style="background:rgba(255,170,0,0.15); color:var(--amber); border:1px solid rgba(255,170,0,0.4); font-size:0.8rem; padding:4px 10px;">LAN INTERNA</span>
+              <button class="btn btn-outline btn-sm" id="btnToggleLanMonitor" onclick="quickToggleLanMonitor()" style="font-size:0.68rem; padding:2px 8px; border-color:var(--text-muted); color:var(--text-muted);">Silenciar / Desativar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -497,15 +503,21 @@
                 <input type="text" class="form-control" id="mkBlockList" value="TIKSENTRY_BLOCKED">
               </div>
               <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
-                <label class="form-label">Opções de Segurança</label>
-                <div style="display:flex; gap:16px; margin-top:4px;">
+                <label class="form-label">Opções de Segurança e Monitoramento</label>
+                <div style="display:flex; flex-wrap:wrap; gap:16px; margin-top:4px;">
                   <label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;">
                     <input type="checkbox" id="mkUseTls" checked> Usar SSL/TLS
                   </label>
                   <label style="font-size:0.8rem; display:flex; align-items:center; gap:6px;">
                     <input type="checkbox" id="mkAutoBlock" checked> Auto-Block Ativo
                   </label>
+                  <label style="font-size:0.8rem; display:flex; align-items:center; gap:6px; color:var(--amber);">
+                    <input type="checkbox" id="mkMonitorLan"> Monitorar Ameaças da Rede Interna (LAN)
+                  </label>
                 </div>
+                <small style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">
+                  * Deixe desmarcado para silenciar alertas locais e monitorar <strong>apenas ataques externos da Internet (WAN)</strong>.
+                </small>
               </div>
             </div>
 

@@ -42,6 +42,17 @@ class IdsEngine {
     // Apenas analisa conexões com IP de origem válido e não-vazio
     if (!log || !log.src_ip) return log;
 
+    // Se o monitoramento da rede interna (LAN) estiver desativado, ignora avaliacao no IDS
+    const zone = log.zone || 'WAN';
+    if (zone === 'LAN') {
+      const monitorLan = await db.getSetting('monitor_lan_threats', 'false');
+      if (monitorLan !== 'true') {
+        log.is_threat = 0;
+        log.threat_reason = null;
+        return log;
+      }
+    }
+
     // Se a regra de recarga tiver mais de 30 segundos, recarrega assincronamente
     if (Date.now() - this.rulesLastLoaded > 30000) {
       this.reloadRules().catch(() => {});
@@ -144,10 +155,15 @@ class IdsEngine {
    * Aciona alerta de ameaça e auto-bloqueio se configurado
    */
   async handleThreatMatch(log, rule) {
+    const zone = log.zone || 'WAN';
+    if (zone === 'LAN') {
+      const monitorLan = await db.getSetting('monitor_lan_threats', 'false');
+      if (monitorLan !== 'true') return;
+    }
+
     const srcIp = log.src_ip;
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
-    const zone = log.zone || 'WAN';
 
     // Evita disparar auto-bloqueio repetidamente se já foi bloqueado nos últimos 60 segundos
     const lastBlockedAt = this.recentlyBlocked.get(srcIp);

@@ -26,6 +26,7 @@ router.get('/config', async (req, res) => {
         wan_interfaces: settings['wan_interfaces'] || 'ether1,pppoe-out1,wan,sfp-sfpplus1,internet',
         lan_interfaces: settings['lan_interfaces'] || 'bridge,lan,bridge1,ether2,ether3,ether4,ether5',
         lan_quarantine_list: settings['lan_quarantine_list'] || 'TIKSENTRY_LAN_QUARANTINE',
+        monitor_lan_threats: (settings['monitor_lan_threats'] || 'false') === 'true',
         auto_detect_wan: (settings['auto_detect_wan'] || 'true') === 'true',
         router_lat: settings['router_lat'] || config.router.lat.toString(),
         router_lng: settings['router_lng'] || config.router.lng.toString(),
@@ -56,6 +57,7 @@ router.post('/config', async (req, res) => {
       wan_interfaces,
       lan_interfaces,
       lan_quarantine_list,
+      monitor_lan_threats,
       auto_detect_wan,
       router_lat,
       router_lng,
@@ -76,6 +78,7 @@ router.post('/config', async (req, res) => {
     if (wan_interfaces !== undefined) await db.setSetting('wan_interfaces', wan_interfaces.trim());
     if (lan_interfaces !== undefined) await db.setSetting('lan_interfaces', lan_interfaces.trim());
     if (lan_quarantine_list !== undefined) await db.setSetting('lan_quarantine_list', lan_quarantine_list.trim().toUpperCase());
+    if (monitor_lan_threats !== undefined) await db.setSetting('monitor_lan_threats', monitor_lan_threats ? 'true' : 'false');
     if (auto_detect_wan !== undefined) await db.setSetting('auto_detect_wan', auto_detect_wan ? 'true' : 'false');
     if (router_lat !== undefined) await db.setSetting('router_lat', router_lat.toString());
     if (router_lng !== undefined) await db.setSetting('router_lng', router_lng.toString());
